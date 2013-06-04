@@ -1,0 +1,121 @@
+#!/usr/local/bin/perl
+
+use strict;
+use warnings;
+
+
+$0 =~ /.*(\/){0,1}perl/ and push(@INC, $&);
+require CN;
+
+my $usage = "usage: $0 [-p minus_log_pvalue_cutoff (default: 3)] peakCN.tab peakGeneset.gmt exp.tab mod.tab\n";
+
+my $pcutoff = 3;
+my $argv = join(" ", @ARGV);
+if($argv =~ s/-p\s+(\S+)//){
+    $pcutoff = $1;
+}
+@ARGV = split(" ", $argv);
+
+$pcutoff = 10**-$pcutoff;
+
+my $HOME = get_home_dir();
+
+unless(@ARGV ==4){
+    die $usage;
+}
+
+my ($cnFile, $gmtFile, $expFile, $modFile) =  @ARGV;
+
+open(IN1, $expFile) or die $usage;
+chomp(my $tmp = <IN1>);
+my $header = $tmp."\n";
+my @sample1 = split("\t", $tmp);
+
+open(IN2, $modFile) or die $usage;
+chomp($tmp = <IN2>);
+my @sample2 = split("\t", $tmp); 
+
+open(IN3, $cnFile) or die $usage;
+chomp($tmp = <IN3>);
+my @sample3 = split("\t", $tmp);  
+
+isect(\@sample1, \@sample2) or die $usage;
+isect(\@sample2, \@sample3) or die $usage; 
+isect(\@sample3, \@sample1) or die $usage; 
+
+chomp(my @gmt = `cat $gmtFile`);
+
+my %gmt;
+my %gene;
+foreach(@gmt){
+    my @tmp = split("\t", $_);
+    $gmt{$tmp[0]} = [@tmp[2..$#tmp]];
+    map {$gene{$_}=1} @tmp[2..$#tmp];
+}
+
+open(OUT, ">tmp${$}.exp.tab"); 
+print OUT $header;
+while(<IN1>){
+    /^([^\t]+)\t/ or next;
+    $gene{$1} or next;
+    print OUT $_;
+}
+close(OUT);
+
+system("perl $HOME/perl/matrixCorrelation.pl -p $pcutoff tmp${$}.exp.tab  $cnFile   > tmp${$}.cor.txt"); 
+system("perl $HOME/perl/matrixCorrelation.pl -p $pcutoff tmp${$}.exp.tab  $modFile  > tmp${$}.cor2.txt");
+
+my $maxLogP = 20;
+
+my %expCnP;
+my %expCnMaxP;
+open(IN, "tmp${$}.cor.txt");
+
+while(<IN>){
+    chomp;
+    my @tmp = split("\t");
+    if( !grep { $tmp[0] eq $_  }  @{$gmt{$tmp[1]}} ){
+	next;
+    }
+    $tmp[2] < 0 and next;
+    my $p = ($tmp[3]==0)?$maxLogP:(-log($tmp[3])/log(10));
+    $expCnP{$tmp[0]}{$tmp[1]} = $tmp[2]*$p;
+    if(!defined($expCnMaxP{$tmp[0]}) or $expCnMaxP{$tmp[0]} < $p){
+	$expCnMaxP{$tmp[0]} = $p;
+    }
+}
+close(IN);
+
+my %expModP;
+open(IN, "tmp${$}.cor2.txt");
+while(<IN>){
+    chomp;
+    my @tmp = split("\t"); 
+    my $p = ($tmp[3]==0)?$maxLogP:(-log($tmp[3])/log(10));    
+    $expModP{$tmp[0]}{$tmp[1]} = $tmp[2]*$p;  
+}
+close(IN);
+
+my @exp =  sort {$expCnMaxP{$a} <=> $expCnMaxP{$b}} keys %expCnP;
+foreach my $e (@exp){
+    my @c =  sort {abs($expCnP{$e}{$b}) <=> abs($expCnP{$e}{$a})} keys %{$expCnP{$e}};
+    foreach my $c (@c){
+	my @out = ($e);
+	push(@out, $c."(".($expCnP{$e}{$c}<0?substr($expCnP{$e}{$c},0,5):substr($expCnP{$e}{$c},0,4)).")");
+	my @m = keys %{$expModP{$e}} or next;
+	@m =  sort {abs($expModP{$e}{$b}) <=> abs($expModP{$e}{$a})} @m;
+	push(@out, map {$_."(".($expModP{$e}{$_}<0?substr($expModP{$e}{$_},0,5):substr($expModP{$e}{$_},0,4)).")"} @m); 
+	print join("\t", @out)."\n";
+    }
+}
+ 
+`rm tmp${$}.*`;
+
+sub isect {
+    my @a = @{shift(@_)};
+    my @b = @{shift(@_)};
+    my %union;
+    my %isect;
+    foreach my $e(@a,@b){$union{$e}++ && $isect{$e}++}
+    return keys %isect;
+}

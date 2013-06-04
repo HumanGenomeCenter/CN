@@ -1,0 +1,24 @@
+# Load GenePattern package
+library(GenePattern)
+username <- "atusiniida"
+password <- "atusiniida"
+servername <- "http://localhost:8080"
+
+# Obtain a GPClient object which references a specific server and user
+gp.client <- gp.login(servername, username, password)
+
+
+
+# input dataset for preprocess operation
+segFile <- "/share2/home/niiyan/CN/out2.seg"
+markerFile<-"share2/home/niiyan/CN/data/SNP6probe.hg18.tsv"
+refgeneFile<-"hg18_with_miR_20080407.mat"
+refgeneFile<-"hg19_with_miR_20120227.mat"
+
+# perform gistic
+gistic.result <- run.analysis(gp, "urn:lsid:broad.mit.edu:cancer.software.genepattern.module.analysis:00125:5", refgene.file=refgeneFile, seg.file=segFile, markers.file=markerFile, array.list.file="", cnv.file="", gene.gistic="1", amplifications.threshold="0.1", deletions.threshold="0.1", join.segment.size="4", qv.thresh="0.25", remove.X="1", confidence.level="0.75", run.broad.analysis="0", broad.length.cutoff="0.98", max.sample.segs="2500", arm.peel="0", output.prefix="<seg.file_basename>")
+
+# download result files
+download.directory <- job.result.get.job.number(gistic.result)
+download.directory <- as.character(download.directory)
+preprocess.out.files <- job.result.download.files(preprocess.jobresult, download.directory)

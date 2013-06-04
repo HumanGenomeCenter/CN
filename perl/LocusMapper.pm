@@ -1,0 +1,188 @@
+#!/usr/local/bin/perl 
+
+use strict;
+use warnings;
+
+$0 =~ /.*(\/){0,1}perl/ and push(@INC, $&);
+require CN;
+
+my $HOME = get_home_dir();
+my $version = "hg18";
+
+my $cytoBandFile = "$HOME/data/cytoBand.${version}.bed";
+my $symbolFile = "$HOME/data/symbol.${version}.bed";
+
+my %gene;
+my %chr2gene;
+my %band;
+my %chr2band; 
+
+sub setVersion{
+    $version = shift;
+    $cytoBandFile = "$HOME/data/cytoBand.${version}.bed"; 
+    $symbolFile = "$HOME/data/symbol.${version}.bed";
+}
+
+sub readData{
+
+    open(IN, $symbolFile);
+    while(<IN>){
+	chomp;
+	my @tmp = split("\t");
+	$gene{$tmp[3]} = [@tmp[0..2]];
+	unless($chr2gene{$tmp[0]}){
+            $chr2gene{$tmp[0]} = [$tmp[3]];
+        }else{
+            push(@{$chr2gene{$tmp[0]}},$tmp[3]);
+        }
+    }
+    
+    open(IN, $cytoBandFile);
+
+    while(<IN>){
+	chomp;
+	my @tmp = split("\t");
+	$band{$tmp[3]} = [@tmp[0..2]];
+	unless($chr2band{$tmp[0]}){
+	    $chr2band{$tmp[0]} = [$tmp[3]];
+	}else{
+	    push(@{$chr2band{$tmp[0]}},$tmp[3]);
+	}
+    }
+}
+
+
+sub formatCoordinate{
+    my($c, $s, $e);
+    if($_[0] =~ /chr(\w+)_(\w+)_(\w+)/){
+	($c, $s, $e) = ($1, $2, $3);
+    }else{
+	($c, $s, $e)  = @_;
+    }
+    unless($c =~ /^chr/){ 
+	$c = "chr".$c; 
+    }
+    $c =~  s/23/X/;
+    $c =~  s/24/X/; 
+    return ($c, $s, $e);
+}
+
+
+sub gene2coordinate{
+    return @{$gene{$_[0]}};
+}
+
+sub gene2band{ 
+    my($c, $s, $e) = gene2coordinate($_[0]); 
+    return coordinate2band($c, $s, $e);
+}
+
+sub coordinate2gene{
+    my($c, $s, $e) = @_;
+    defined($e) or $e = $s;
+    my @gene = grep {($e-$gene{$_}[1])*($gene{$_}[2]-$s)>0} @{$chr2gene{$c}}; 
+    return @gene;
+}
+
+sub band2coordinate{
+    my $band = shift;
+    my @tmp;
+    if($band =~ /^[\dXY]+[pq]$/){
+	@tmp = grep {/^$band/} keys %band;
+    }elsif($band =~ /^[\dXY]+[pq][\d]+/){
+	@tmp = grep {/^$band$/ or /^$band\./} keys %band;
+    }else{
+	@tmp = grep {$_ eq $band} keys %band;
+    }
+    my $c = $band{$tmp[0]}[0];
+    my $s = $band{$tmp[0]}[1];
+    my $e = $band{$tmp[0]}[2];
+    foreach(@tmp[1..$#tmp]){ 
+	if($s > $band{$_}[1]){
+	    $s = $band{$_}[1];
+	}
+	if($e < $band{$_}[2]){
+	    $e = $band{$_}[2];
+	}
+    }
+    return ($c, $s, $e);
+}
+
+sub band2gene{
+    return coordinate2gene(band2coordinate($_[0]));
+}
+
+sub coordinate2band{
+    my($c, $s, $e) = @_;
+    defined($e) or  $e = $s;
+    my @band = grep {($e-$band{$_}[1])*($band{$_}[2]-$s)>0} @{$chr2band{$c}}; 
+    if(@band==1){
+	return $band[0];
+    }else{
+	my @tmp = map {/^[\dXY]+[pq]/ and $&} @band;
+	my %tmp;
+	map {$tmp{$_}=1} @tmp;
+	@tmp = sort keys %tmp;
+	my @band2;
+	foreach my $t (@tmp){
+	    my @tmp = grep {/^$t/} @band;
+	    if(@tmp==1){
+		push(@band2,  $tmp[0]);
+	    }else{
+		map {s/^$t//} @tmp;
+		@tmp = sort @tmp;
+		push(@band2, $t.$tmp[0]."-".$tmp[$#tmp]); 
+	    }
+	}
+	return join(" ",@band2); 
+    }
+}
+
+sub conv_number_to_si_prefix{
+    if(@_==1){
+    my %number2si_prefix = (
+                            '000' => 'k',
+                            '000000' => 'M',
+                            '000000000' => 'G',
+                            '000000000000' => 'T'
+	);
+    my $number = shift;
+    if($number=~/^(\d+?)((0{3})+)$/){
+	if($number2si_prefix{$2}){
+	    $number = $1.$number2si_prefix{$2};
+	}
+    }
+    return $number;
+    }else{
+     my %si_prefix2number = (
+                             k => 1000,
+                             M => 1000000,
+                             G => 1000000000,
+                             T => 1000000000000,
+	 );
+     
+     my $number = shift;
+     my $si_prefix = shift;
+     $si_prefix2number{$si_prefix} or return $number;
+     return  ($number/$si_prefix2number{$si_prefix}).$si_prefix;
+    }
+}
+
+sub conv_si_prefix_to_number{
+  my %si_prefix2number = (
+                          K => 1000,
+                          M => 1000000,
+                          G => 1000000000,
+                          T => 1000000000000
+      );
+  my $number = shift;
+  if($number=~/^([\.\d]+)(\w)$/){
+      my $tmp = uc($2);
+      if($si_prefix2number{$tmp}){
+          $number = $1*$si_prefix2number{$tmp};
+      }
+  }
+  return $number;
+}
+
+1;
