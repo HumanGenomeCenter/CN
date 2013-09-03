@@ -10,6 +10,6 @@ set_environment();
 my $usage ="usage: $0 segFile probeFile\n";
 my $segFile = shift or die $usage;
 my $probeFile = shift or die $usage;
-system("java  snp.SegmentContainerMap -f  $segFile  > tmp${$}.seg"); 
-system("java  snp.SegmentContainerMap -N -p $probeFile tmp${$}.seg");
+system("java -Xmx2G -Xms2G  snp.SegmentContainerMap -f  $segFile  > tmp${$}.seg"); 
+system("java -Xmx2G -Xms2G snp.SegmentContainerMap -N -p $probeFile tmp${$}.seg");
 `rm tmp${$}.seg`;
