@@ -1,0 +1,104 @@
+#!/usr/local/bin/perl
+
+use strict;
+use warnings;
+
+$0 =~ /.*(\/){0,1}perl/ and push(@INC, $&);
+require CN;
+
+my $part_pvalue_cutoff = 10;
+my $cor_cutoff = 0.6;
+my $part_cutoff = "0.05,0.1,0.9,0.95";
+
+my $usage = "usage: $0 [-p part_pvalue_cutoff($part_pvalue_cutoff) -a part_cutoff($part_cutoff) -c cor_cutoff($cor_cutoff)] cn.tab  exp.tab\n";
+
+my $argv = join(" ", @ARGV);
+if($argv =~ s/-p\s+(\S+)//){
+     $part_pvalue_cutoff = $1;
+}
+if($argv =~ s/-p\s+(\S+)//){
+    $part_cutoff = $1;
+}
+if($argv =~ s/-p\s+(\S+)//){
+    $cor_cutoff = $1;
+}
+@ARGV = split(" ", $argv);
+
+my $HOME = get_home_dir();
+
+unless(@ARGV ==2){
+    die $usage;
+}
+
+my ($cnFile, $expFile) =  @ARGV;
+my $RscriptFile = "tmp${$}.R";
+my $outFile = "tmp${$}.out";
+
+$part_cutoff = join(", ",  split(",", $part_cutoff));
+
+open(OUT, ">$RscriptFile");
+print OUT<<"EOF";
+
+expFile<-"$expFile"
+cnFile<-"$cnFile"
+
+partpCutoff<-$part_pvalue_cutoff
+corCutoff<-$cor_cutoff
+partCutoff<-c($part_cutoff)
+
+Exp<-as.matrix(read.table(expFile))
+Cn<-as.matrix(read.table(cnFile))
+
+Ppart<-rep(0, nrow(Cn))
+names(Ppart)<-rownames(Cn)
+
+usedCnCutoff<-rep(NA,nrow(Cn)) 
+names(usedCnCutoff)<-rownames(Cn)
+
+    library(poibin);
+tmp<-as.vector(Cn)
+    for(i in 1:length(partCutoff)){
+  A<-matrix(0, nrow(Cn), ncol(Cn))
+  cuttoff<-quantile(tmp, partCutoff[i])
+  if(partCutoff[i]<0.5){
+    A[Cn<=cuttoff]<-1
+    }else{
+    A[Cn>=cuttoff]<-1
+    }
+  App<-apply(A,2,mean);
+  Ak<-apply(A,1,sum);
+  Apv<-1-ppoibin(kk=Ak, pp=App, method = "DFT-CF")
+      names(Apv)<-names(Ak);
+  Apv[Apv<=0]<-min(Apv[Apv>0])
+  Apv<--log10(Apv)
+  usedCnCutoff[Apv>Ppart]<-partCutoff[i]
+  Ppart[Apv>Ppart]<-Apv[Apv>Ppart]
+}
+
+
+filtered<-rownames(Cn)[Ppart>partpCutoff]
+filtered<-intersect(filtered, rownames(Exp))
+
+tmp<-intersect(colnames(Cn),colnames(Exp))
+Cn2<-Cn[filtered,tmp]
+Exp2<-Exp[filtered,tmp]
+
+CnMean<-apply(Cn2,1,mean)
+ExpMean<-apply(Exp2,1,mean)
+tmp<-apply((Cn2-CnMean)*(Exp2-ExpMean),1,sum)
+tmp2<-apply((Cn2-CnMean)*(Cn2-CnMean),1,sum)
+tmp3<-apply((Exp2-ExpMean)*(Exp2-ExpMean),1,sum)            
+cor<-tmp/(sqrt(tmp2)*sqrt(tmp3))
+            
+filtered2<-filtered[cor>corCutoff]
+
+Result<-cbind(cor[filtered2], Ppart[filtered2],  usedCnCutoff[filtered2])
+colnames(Result)<-c("cn_exp_cor","part_pvalue","part_cutoff")
+Result<-Result[names(rev(sort(Result[,"cn_exp_cor"]))),]
+write.table(Result,file="$outFile",sep="\t",quote=F)
+
+EOF
+
+`R --vanilla < $RscriptFile >& /dev/null`;
+print `cat $outFile`;
+`rm $RscriptFile $outFile`;
