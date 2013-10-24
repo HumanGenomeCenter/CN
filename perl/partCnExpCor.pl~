@@ -6,89 +6,99 @@ use warnings;
 $0 =~ /.*(\/){0,1}perl/ and push(@INC, $&);
 require CN;
 
-my $usage = "usage: $0 [-p minus_log_pvalue_cutoff (default: 3)] peakCN.tab peakGeneset.gmt exp.tab\n";
+my $part_pvalue_cutoff = 10;
+my $cor_cutoff = 0.6;
+my $part_cutoff = "0.05,0.1,0.9,0.95";
 
-my $pcutoff = 3;
+my $usage = "usage: $0 [-p part_pvalue_cutoff($part_pvalue_cutoff) -a part_cutoff($part_cutoff) -c cor_cutoff($cor_cutoff)] cn.tab  exp.tab\n";
+
 my $argv = join(" ", @ARGV);
 if($argv =~ s/-p\s+(\S+)//){
-    $pcutoff = $1;
+     $part_pvalue_cutoff = $1;
+}
+if($argv =~ s/-p\s+(\S+)//){
+    $part_cutoff = $1;
+}
+if($argv =~ s/-p\s+(\S+)//){
+    $cor_cutoff = $1;
 }
 @ARGV = split(" ", $argv);
 
 my $HOME = get_home_dir();
 
-unless(@ARGV ==3){
+unless(@ARGV ==2){
     die $usage;
 }
 
-my ($cnFile, $gmtFile, $expFile) =  @ARGV;
+my ($cnFile, $expFile) =  @ARGV;
+my $RscriptFile = "tmp${$}.R";
+my $outFile = "tmp${$}.out";
 
-open(IN1, $cnFile) or die $usage;
-chomp(my $tmp = <IN1>);
-my $header = $tmp."\n";
-my @sample1 = split("\t", $tmp);
+$part_cutoff = join(", ",  split(",", $part_cutoff));
 
-open(IN2, $expFile) or die $usage;
-chomp($tmp = <IN2>);
-my @sample2 = split("\t", $tmp); 
-my @sample = isect(\@sample1, \@sample2) or die $usage;
+open(OUT, ">$RscriptFile");
+print OUT<<"EOF";
 
-chomp(my @gmt = `cat $gmtFile`);
+expFile<-"$expFile"
+cnFile<-"$cnFile"
 
-my $maxLogP = 20;
+partpCutoff<-$part_pvalue_cutoff
+corCutoff<-$cor_cutoff
+partCutoff<-c($part_cutoff)
 
-while(<IN1>){
-    open(OUT , ">tmp${$}.cn.tab");
-    print OUT $header;
-    print OUT $_;
-    close(OUT);
-    chomp;
-    my @tmp = split("\t");
-    my $id = shift(@tmp);
-    @tmp = grep {/^$id\t/} @gmt or next;
-    @tmp = split("\t", $tmp[0]);
-    my @gene = @tmp[2..$#tmp];
-    map {s/^\[//g} @gene;
-    map {s/\]$//g} @gene;
-    my %gene;
-    map {$gene{$_} = 1} @gene;
-    open(IN2, $expFile) or die $usage;
-    my $header2 = <IN2>;
-    open(OUT, ">tmp${$}.exp.tab"); 
-    print OUT $header2; 
-    while(<IN2>){
-	/^([^\t]+)\t/ or next;
-	$gene{$1} or next;
-	print OUT $_;
+Exp<-as.matrix(read.table(expFile))
+Cn<-as.matrix(read.table(cnFile))
+
+Ppart<-rep(0, nrow(Cn))
+names(Ppart)<-rownames(Cn)
+
+usedCnCutoff<-rep(NA,nrow(Cn)) 
+names(usedCnCutoff)<-rownames(Cn)
+
+    library(poibin);
+tmp<-as.vector(Cn)
+    for(i in 1:length(partCutoff)){
+  A<-matrix(0, nrow(Cn), ncol(Cn))
+  cuttoff<-quantile(tmp, partCutoff[i])
+  if(partCutoff[i]<0.5){
+    A[Cn<=cuttoff]<-1
+    }else{
+    A[Cn>=cuttoff]<-1
     }
-    close(OUT);
-    system("perl $HOME/perl/matrixCorrelation.pl tmp${$}.cn.tab tmp${$}.exp.tab  > tmp${$}.cor.txt");
-    my %pvalue;
-    open(IN2, "tmp${$}.cor.txt");
-    while(<IN2>){
-	chomp;
-	my @tmp = split("\t");
-	my $g = $tmp[1];
-	my $p = ($tmp[3]==0)?$maxLogP:(-log($tmp[3])/log(10));
-	if($tmp[2] != 1){
-	    $p = 0;
-	}
-	$p < $pcutoff and next;
-	$pvalue{$g} = $p;
-    }
-    close(IN2);
-    @gene = sort {$pvalue{$b} <=> $pvalue{$a}} keys %pvalue;
-    @gene or next;
-    print join("\t", ($id, "",  map {$_."(".substr($pvalue{$_},0,4).")" } @gene ))."\n";
+  App<-apply(A,2,mean);
+  Ak<-apply(A,1,sum);
+  Apv<-1-ppoibin(kk=Ak, pp=App, method = "DFT-CF")
+      names(Apv)<-names(Ak);
+  Apv[Apv<=0]<-min(Apv[Apv>0])
+  Apv<--log10(Apv)
+  usedCnCutoff[Apv>Ppart]<-partCutoff[i]
+  Ppart[Apv>Ppart]<-Apv[Apv>Ppart]
 }
 
-`rm tmp${$}.*`;
 
-sub isect {
-    my @a = @{shift(@_)};
-    my @b = @{shift(@_)};
-    my %union;
-    my %isect;
-    foreach my $e(@a,@b){$union{$e}++ && $isect{$e}++}
-    return keys %isect;
-}
+filtered<-rownames(Cn)[Ppart>partpCutoff]
+filtered<-intersect(filtered, rownames(Exp))
+
+tmp<-intersect(colnames(Cn),colnames(Exp))
+Cn2<-Cn[filtered,tmp]
+Exp2<-Exp[filtered,tmp]
+
+CnMean<-apply(Cn2,1,mean)
+ExpMean<-apply(Exp2,1,mean)
+tmp<-apply((Cn2-CnMean)*(Exp2-ExpMean),1,sum)
+tmp2<-apply((Cn2-CnMean)*(Cn2-CnMean),1,sum)
+tmp3<-apply((Exp2-ExpMean)*(Exp2-ExpMean),1,sum)            
+cor<-tmp/(sqrt(tmp2)*sqrt(tmp3))
+            
+filtered2<-filtered[cor>corCutoff]
+
+Result<-cbind(cor[filtered2], Ppart[filtered2],  usedCnCutoff[filtered2])
+colnames(Result)<-c("cn_exp_cor","part_pvalue","part_cutoff")
+Result<-Result[names(rev(sort(Result[,"cn_exp_cor"]))),]
+write.table(Result,file="$outFile",sep="\t",quote=F)
+
+EOF
+
+`R --vanilla < $RscriptFile >& /dev/null`;
+print `cat $outFile`;
+`rm $RscriptFile $outFile`;
