@@ -1,0 +1,17 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+
+$0 =~ /.*(\/){0,1}perl/ and push(@INC, $&);                                     
+require LocusMapper; 
+
+my $usage ="usage: $0 [-v geneme_version (default: hg18)]  chr start end\n";
+my $version = "hg19";
+my $argv = join(" ", @ARGV);
+if($argv =~ s/-v\s+(\S+)//){
+    $version = $1;
+}
+@ARGV = split(" ", $argv);
+
