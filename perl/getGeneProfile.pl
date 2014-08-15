@@ -17,4 +17,5 @@ if($argv =~ s/-v\s+(\S+)//){
 my $segFile = shift or die $usage;
 my $bedFile = get_home_dir()."/data/symbol.${version}.bed";
 
-system("java  snp.SegmentContainerMap -M -b $bedFile $segFile");
+system("perl ".get_home_dir()."/perl/segment.pl  -M -b $bedFile $segFile");
+

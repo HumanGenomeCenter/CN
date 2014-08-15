@@ -7,7 +7,7 @@ $0 =~ /.*(\/){0,1}perl/ and push(@INC, $&);
 require CN;
 set_environment();
 
-my $usage ="usage: $0 segFile armBedFile\n";
+my $usage ="usage: $0 [-v geneme_version (default: hg18)] segFile\n";
 my $version = "hg18";
 my $argv = join(" ", @ARGV);
 if($argv =~ s/-v\s+(\S+)//){
