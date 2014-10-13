@@ -5,7 +5,9 @@ use warnings;
 
 
 ###home dir###
-my $HOME = $ENV{HOME}."/CN";
+#my $HOME = $ENV{HOME}."/CN";
+my $HOME = "/share2/home/niiyan/CN";
+
 
 sub get_home_dir{
     return $HOME;

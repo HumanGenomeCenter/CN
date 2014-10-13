@@ -3,10 +3,8 @@
 use strict;
 use warnings;
 
-####################################################
-#Change this depending on where you put GISTIC dir.#
-####################################################
-#my $HOME = "/home/mimorin/EEM";
+
+###home dir###
 my $HOME = $ENV{HOME}."/CN";
 
 sub get_home_dir{
